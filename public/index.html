@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CRUD de Usuarios y Tareas</title>
+    <link rel="stylesheet" href="estilos.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+
+    <h1>Práctica CRUD con Servicios</h1>
+
+    <div class="container">
+        <div class="usuario">
+            <section class="form-section">
+                <span class="crear-usuario">Crear Usuario</span>
+                <form id="usuarioForm">
+                    <input type="text" id="nombre" placeholder="Nombre" required>
+                    <input type="email" id="email" placeholder="Email" required>
+                    <div>
+                        <button type="submit" class="btn"><i class="fa-solid fa-user-plus"></i> Crear Usuario</button>
+                    </div>
+                </form>
+            </section>
+
+            <div class="separar"></div>
+
+
+            <section class="table-section">
+                <span class="lista-usuarios">Lista de Usuarios</span>
+                <table id="tablaUsuarios">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Nombre</th>
+                            <th>Email</th>
+                            <th>Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody id="listaUsuarios">
+                        <!-- en aqui apareceran la lista de usuarios que se va agregando -->
+                    </tbody>
+                </table>
+            </section>
+        </div>
+
+        <!------------------------------ Sección de Tareas ----------------------------->
+        <div class="tareas">
+            <section class="form-section">
+                <span class="crear-tarea">Crear Tarea</span>
+                <form id="tareaForm">
+                    <select id="usuarioId" required>
+                        <option value="" disabled selected>Seleccionar Usuario</option>
+                        <!-- Opciones de los usuarios que estan en la lista -->
+                    </select>
+                    <textarea id="descripcion" placeholder="Descripción de la Tarea" required></textarea>
+                    <label class="completada">
+                        <select id="completada" required>
+                            <option value="" disabled selected>¿Está Completada?</option>
+                            <option value="0">No</option>
+                            <option value="1">Sí</option>
+                        </select>
+                    </label>
+                    <div>
+                        <button type="submit" class="btn"><i class="fa-solid fa-file"></i> Crear Tarea</button>
+                    </div>
+                </form>
+            </section>
+
+            <div class="separar"></div>
+
+            <section class="table-section">
+                <span class="lista-tarea">Lista de Tareas</span>
+                <table id="tablaTareas">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Usuario</th>
+                            <th>Descripción</th>
+                            <th>Completada</th>
+                            <th>Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody id="listaTareas">
+                        <!-- aquí se mostraran las tareas agregadas -->
+                    </tbody>
+                </table>
+            </section>
+        </div>
+    </div>
+
+    <!--------------------- Modal para editar Usuario --------------------->
+    <div id="modalEditarUsuario" class="modal">
+        <div class="modal-content">
+            <span class="close" id="cerrarModalEditarUsuario">&times;</span>
+            <h2>Editar Usuario</h2>
+            <label>
+                Nombre:
+                <input type="text" id="nombreEditar" required>
+            </label>
+            <label>
+                Email:
+                <input type="email" id="emailEditar" required>
+            </label>
+            <div>
+                <button id="guardarCambiosUsuario">Guardar Cambios</button>
+            </div>
+        </div>
+    </div>
+
+    <!-------------------------- Modal para editar Tarea ----------------->
+    <div id="modalEditarTarea" class="modal">
+        <div class="modal-content">
+            <span class="close" id="cerrarModalEditarTarea">&times;</span>
+            <h2>Editar Tarea</h2>
+            <textarea id="descripcionEditar" placeholder="Descripción de la Tarea" required></textarea>
+            <label>
+                Completada:
+                <select id="completadaEditar" required>
+                    <option value="" disabled selected>¿Está Completada?</option>
+                    <option value="0">No</option>
+                    <option value="1">Sí</option>
+                </select>
+            </label>
+            <div>
+                <button id="guardarCambiosTarea">Guardar Cambios</button>
+            </div>
+        </div>
+    </div>
+
+
+    <script>
+    const API_URL_USUARIOS = '../api/usuarios.php';
+    const API_URL_TAREAS = '../api/tareas.php';
+
+    let usuarioIdEdicion = null;
+    let tareaIdEdicion = null;
+
+    document.addEventListener('DOMContentLoaded', () => {
+        cargarUsuarios();
+        cargarTareas();
+
+        document.getElementById('usuarioForm').addEventListener('submit', crearUsuario);
+        document.getElementById('tareaForm').addEventListener('submit', crearTarea);
+
+        // --------------- esto es para cerrar modals 
+        document.getElementById('cerrarModalEditarUsuario').onclick = () => {
+            document.getElementById('modalEditarUsuario').style.display = 'none';
+        };
+
+        document.getElementById('cerrarModalEditarTarea').onclick = () => {
+            document.getElementById('modalEditarTarea').style.display = 'none';
+        };
+
+        // ------------- esto es para cerrar modal al hacer clic fuera 
+        window.onclick = function(event) {
+            const modales = document.querySelectorAll('.modal');
+            modales.forEach(modal => {
+                if (event.target == modal) {
+                    modal.style.display = "none";
+                }
+            });
+        };
+    });
+
+    // Función para escapar caracteres especiales y prevenir XSS
+    function escapeHtml(text) {
+        const map = {
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#039;',
+        };
+        return text.replace(/[&<>"']/g, function(m) { return map[m]; });
+    }
+
+
+    // ------------------------------------------------------------------------------------------------------------
+
+    // ---------- Carga los usuarios y  por ID
+    async function cargarUsuarios(id = null) {
+        try {
+            let url = API_URL_USUARIOS;
+            if (id !== null) {
+                url += `?id=${id}`;
+            }
+            const response = await fetch(url);
+            const usuarios = await response.json();
+            const lista = document.getElementById('listaUsuarios');
+            lista.innerHTML = ''; // Limpia la tabla antes de llenarla
+
+            if (id !== null && usuarios.message) {
+                // Manejo de errores específicos al buscar por ID
+                alert(usuarios.message);
+                return;
+            }
+        // ------------------------------------------------------------------------------------------------------------
+
+            usuarios.forEach(usuario => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${usuario.id}</td>
+                    <td>${escapeHtml(usuario.nombre)}</td>
+                    <td>${escapeHtml(usuario.email)}</td>
+                    <td class="boton-aciones">
+                        <button class="editar" onclick="editarUsuario(${usuario.id}, '${escapeHtml(usuario.nombre)}', '${escapeHtml(usuario.email)}')" ><i class="fa-solid fa-pen-to-square"></i> Editar</button>
+                        <button class="eliminar" onclick="eliminarUsuario(${usuario.id})" ><i class="fa-solid fa-trash-can"></i> Eliminar</button>
+                    </td>
+                `;
+                lista.appendChild(row);
+            });
+
+            if (id !== null && usuarios.length === 0) {
+                alert('Usuario no encontrado.');
+            }
+
+            actualizarOpcionesUsuarios();
+        } catch (error) {
+            console.error('Error al cargar usuarios:', error);
+            alert('Error al cargar usuarios.');
+        }
+    }
+
+    // Actualiza las opciones del select de usuarios en el formulario de tareas
+    async function actualizarOpcionesUsuarios() {
+        try {
+            const response = await fetch(API_URL_USUARIOS);
+            const usuarios = await response.json();
+            const selectUsuario = document.getElementById('usuarioId');
+            selectUsuario.innerHTML = '<option value="" disabled selected>Seleccionar Usuario</option>'; 
+
+            usuarios.forEach(usuario => {
+                const option = document.createElement('option');
+                option.value = usuario.id;
+                option.textContent = `(${usuario.id}) | ${usuario.nombre}`; // Mostrar ID y Nombre del usuario 
+                selectUsuario.appendChild(option);
+            });
+        } catch (error) {
+            console.error('Error al cargar opciones de usuarios:', error);
+            alert('Error al cargar opciones de usuarios.');
+        }
+    }
+
+    // Carga las tareas, opcionalmente por ID
+    async function cargarTareas(id = null) {
+        try {
+            let url = API_URL_TAREAS;
+            if (id !== null) {
+                url += `?id=${id}`;
+            }
+            const response = await fetch(url);
+            const tareas = await response.json();
+            const lista = document.getElementById('listaTareas');
+            lista.innerHTML = ''; 
+
+            if (id !== null && tareas.message) {
+                alert(tareas.message);
+                return;
+            }
+
+            tareas.forEach(tarea => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${tarea.id}</td>
+                    <td>${tarea.usuario_id}</td>
+                    <td>${escapeHtml(tarea.descripcion)}</td>
+                    <td>${tarea.completada}</td>
+                    <td class="boton-aciones">
+                        <button class="editar" onclick="editarTarea(${tarea.id}, '${escapeHtml(tarea.descripcion)}', '${tarea.completada}')" ><i class="fa-solid fa-pen-to-square"></i> Editar</button>
+                        <button class="eliminar" onclick="eliminarTarea(${tarea.id})" ><i class="fa-solid fa-trash-can"></i> Eliminar</button>
+                    </td>
+                `;
+                lista.appendChild(row);
+            });
+
+            if (id !== null && tareas.length === 0) {
+                alert('Tarea no encontrada.');
+            }
+        } catch (error) {
+            console.error('Error al cargar tareas:', error);
+            alert('Error al cargar tareas.');
+        }
+    }
+
+    // Buscar usuario por ID
+    async function buscarUsuarioPorId(event) {
+        event.preventDefault();
+        const id = document.getElementById('buscarUsuarioId').value.trim();
+
+        if (id === '') {
+            alert('Por favor, ingresa un ID válido.');
+            return;
+        }
+
+        cargarUsuarios(id);
+    }
+
+    // Buscar tarea por ID
+    async function buscarTareaPorId(event) {
+        event.preventDefault();
+        const id = document.getElementById('buscarTareaId').value.trim();
+
+        if (id === '') {
+            alert('Por favor, ingresa un ID válido.');
+            return;
+        }
+
+        cargarTareas(id);
+    }
+
+    // Crear usuario
+    async function crearUsuario(event) {
+        event.preventDefault();
+        const nombre = document.getElementById('nombre').value.trim();
+        const email = document.getElementById('email').value.trim();
+
+        if (nombre === '' || email === '') {
+            alert('Por favor, completa todos los campos.');
+            return;
+        }
+
+        try {
+            const response = await fetch(API_URL_USUARIOS, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ nombre, email }),
+            });
+
+            const result = await response.json();
+
+            if (response.ok) {
+                alert(result.message);
+                cargarUsuarios();
+                document.getElementById('usuarioForm').reset();
+            } else {
+                alert(result.message || 'Error al crear usuario.');
+                console.error('Error al crear usuario:', result);
+            }
+        } catch (error) {
+            console.error('Error al crear usuario:', error);
+            alert('Error al crear usuario.');
+        }
+    }
+
+    // Crear tarea
+    async function crearTarea(event) {
+        event.preventDefault();
+        const usuario_id = document.getElementById('usuarioId').value;
+        const descripcion = document.getElementById('descripcion').value.trim();
+        const completada = document.getElementById('completada').value;
+
+        if (usuario_id === '' || descripcion === '' || completada === '') {
+            alert('Por favor, completa todos los campos.');
+            return;
+        }
+
+        try {
+            const response = await fetch(API_URL_TAREAS, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ usuario_id, descripcion, completada }),
+            });
+
+            const result = await response.json();
+            console.log('Respuesta del backend:', result); // Para depuración
+
+            if (response.ok) {
+                alert(result.message);
+                cargarTareas();
+                document.getElementById('tareaForm').reset();
+            } else {
+                alert(result.message || 'Error al crear tarea.');
+                console.error('Error al crear tarea:', result);
+            }
+        } catch (error) {
+            console.error('Error al crear tarea:', error);
+            alert('Error al crear tarea.');
+        }
+    }
+
+    // Eliminar usuario
+    async function eliminarUsuario(id) {
+        if (confirm('¿Estás seguro de que deseas eliminar este usuario?')) {
+            try {
+                const response = await fetch(API_URL_USUARIOS, {
+                    method: 'DELETE',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ id }),
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    alert(result.message);
+                    cargarUsuarios();
+                } else {
+                    alert(result.message || 'Error al eliminar usuario.');
+                    console.error('Error al eliminar usuario:', result);
+                }
+            } catch (error) {
+                console.error('Error al eliminar usuario:', error);
+                alert('Error al eliminar usuario.');
+            }
+        }
+    }
+
+    // Eliminar tarea
+    async function eliminarTarea(id) {
+        if (confirm('¿Estás seguro de que deseas eliminar esta tarea?')) {
+            try {
+                const response = await fetch(API_URL_TAREAS, {
+                    method: 'DELETE',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ id }),
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    alert(result.message);
+                    cargarTareas();
+                } else {
+                    alert(result.message || 'Error al eliminar tarea.');
+                    console.error('Error al eliminar tarea:', result);
+                }
+            } catch (error) {
+                console.error('Error al eliminar tarea:', error);
+                alert('Error al eliminar tarea.');
+            }
+        }
+    }
+
+    // Editar usuario
+    function editarUsuario(id, nombre, email) {
+        usuarioIdEdicion = id;
+        document.getElementById('nombreEditar').value = nombre;
+        document.getElementById('emailEditar').value = email;
+
+        document.getElementById('modalEditarUsuario').style.display = 'block';
+    }
+
+    // Guardar cambios de usuario
+    async function guardarCambiosUsuario() {
+        const nombre = document.getElementById('nombreEditar').value.trim();
+        const email = document.getElementById('emailEditar').value.trim();
+
+        if (nombre === '' || email === '') {
+            alert('Por favor, completa todos los campos.');
+            return;
+        }
+
+        try {
+            const response = await fetch(API_URL_USUARIOS, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ id: usuarioIdEdicion, nombre, email }),
+            });
+
+            const result = await response.json();
+
+            if (response.ok) {
+                alert(result.message);
+                cargarUsuarios();
+                document.getElementById('modalEditarUsuario').style.display = 'none';
+            } else {
+                alert(result.message || 'Error al editar usuario.');
+                console.error('Error al editar usuario:', result);
+            }
+        } catch (error) {
+            console.error('Error al editar usuario:', error);
+            alert('Error al editar usuario.');
+        }
+    }
+
+    // Guardar cambios de usuario (Botón)
+    document.getElementById('guardarCambiosUsuario').addEventListener('click', guardarCambiosUsuario);
+
+    // Editar tarea
+    function editarTarea(id, descripcion, completada) {
+        tareaIdEdicion = id;
+        document.getElementById('descripcionEditar').value = descripcion;
+
+        const completadaValue = completada === 'Sí' ? '1' : '0';
+        document.getElementById('completadaEditar').value = completadaValue;
+
+        document.getElementById('modalEditarTarea').style.display = 'block';
+    }
+
+    // Guardar cambios de tarea
+    async function guardarCambiosTarea() {
+        const descripcion = document.getElementById('descripcionEditar').value.trim();
+        const completada = document.getElementById('completadaEditar').value;
+
+        if (descripcion === '' || completada === '') {
+            alert('Por favor, completa todos los campos.');
+            return;
+        }
+
+        try {
+            const response = await fetch(API_URL_TAREAS, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ id: tareaIdEdicion, descripcion, completada }),
+            });
+
+            const result = await response.json();
+
+            if (response.ok) {
+                alert(result.message);
+                cargarTareas();
+                document.getElementById('modalEditarTarea').style.display = 'none';
+            } else {
+                alert(result.message || 'Error al editar tarea.');
+                console.error('Error al editar tarea:', result);
+            }
+        } catch (error) {
+            console.error('Error al editar tarea:', error);
+            alert('Error al editar tarea.');
+        }
+    }
+
+    // esto es para Guardar cambios de tarea osea el boton
+    document.getElementById('guardarCambiosTarea').addEventListener('click', guardarCambiosTarea);
+    </script>
+</body>
+</html>
